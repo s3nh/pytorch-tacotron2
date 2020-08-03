@@ -38,6 +38,58 @@ class FeaturePredictNet(nn.Module):
                                postnet_num_convs, postnet_filter_size, postnet_kernel_size,
                                max_decoder_steps)
 
+
+
+    def forward(self, text_padded, input_lengths, feat_padded, encoder_mask, decoder_mask):
+        encoder_padded_outputs = self.encoder(text_padded, input_lengths)
+        feat_outputs, feat_residual_outputs, stop_tokens, attention_weights \
+            = self.decoder(encoder_padded_outputs, encoder_mask, feat_padded, decoder_mask)
+        return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
+
+    def inference(self, text_padded, input_lengths):
+        encoder_padded_outputs = self.encoder(text_padded, input_lengths)
+        feat_outputs, feat_residual_outputs, stop_tokens, attention_weights \
+            = self.decoder.inference(encoder_padded_outputs)
+        return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
+
+    @classmethod
+    def load_model(cls, path):
+        # Load to CPU
+        package = torch.load(path, map_location=lambda storage, loc: storage)
+        model = cls.load_model_from_package(package)
+        return model
+
+    @classmethod
+    def load_model_from_package(cls, package):
+        model = cls(package['num_chars'], package['padding_idx'], package['feature_dim'],
+                    package['embedding_dim'], package['encoder_num_convs'], package['kernel_size'],
+                    package['encoder_hidden_size'], package['bidirectional'],
+                    package['prenet_dim'], package['decoder_hidden_size'],
+                    package['attention_dim'], package['location_feature_dim'],
+                    package['postnet_num_convs'], package['postnet_filter_size'], package['postnet_kernel_size'])
+        model.load_state_dict(package['state_dict'])
+        return model
+
+    @staticmethod
+    def serialize(model, optimizer, epoch, tr_loss=None, cv_loss=None):
+        package = {
+            # hyper-parameter
+            'num_chars': model.num_chars, 'padding_idx': model.padding_idx, 'feature_dim': model.feature_dim,
+            'embedding_dim': model.embedding_dim, 'encoder_num_convs': model.encoder_num_convs, 'kernel_size': model.kernel_size,
+            'encoder_hidden_size': model.encoder_hidden_size, 'bidirectional': model.bidirectional,
+            'prenet_dim': model.prenet_dim, 'decoder_hidden_size': model.decoder_hidden_size,
+            'attention_dim': model.attention_dim, 'location_feature_dim': model.location_feature_dim,
+            'postnet_num_convs': model.postnet_num_convs, 'postnet_filter_size': model.postnet_filter_size, 'postnet_kernel_size': model.postnet_kernel_size,
+            # state
+            'state_dict': model.state_dict(),
+            'optim_dict': optimizer.state_dict(),
+            'epoch': epoch
+        }
+        if tr_loss is not None:
+            package['tr_loss'] = tr_loss
+            package['cv_loss'] = cv_loss
+        return package        
+
 class Encoder(nn.Module):
 
     def __init__(self, num_chars, padding_idx, embedding_dim=512, encoder_num_convs=3, 
@@ -75,8 +127,8 @@ class Encoder(nn.Module):
 
         self.rnn.flatten_parameters()
         packed_output, _ = self.rnn(packed_input)
-        ouput, _ = pad_packed_sequence(packed_output, batch_first = True, total_length = total_length)
-        output
+        output, _ = pad_packed_sequence(packed_output, batch_first = True, total_length = total_length)
+        return output
 
 class Decoder(nn.Module):
     # Mel spectrogram prediction 
@@ -128,7 +180,7 @@ class Decoder(nn.Module):
             step_input = prenet_out[:, t, :]
             feat_output, stop_token, attention_weight = self._step(step_input)
             feat_outputs += [feat_output]
-            stop_okens += [stop_token]
+            stop_tokens += [stop_token]
             attention_weights += [attention_weight]
             
         feat_outputs = torch.stack(feat_outputs, dim=1)
@@ -144,7 +196,47 @@ class Decoder(nn.Module):
         stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
         return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
 
+    def _init_go_frame(self, tensor):
+        """tensor: [N, ...]"""
+        N = tensor.size(0)
+        go_frame = tensor.new_zeros(N, 1, self.feature_dim)
+        return go_frame
 
+    def _init_state(self, encoder_padded_outputs):
+        """encoder_padded_outputs: [N, Ti, ...]"""
+        N, Ti = encoder_padded_outputs.size()[:2]
+        # Init LSTMCell state
+        self.h_list = [encoder_padded_outputs.new_zeros(N, self.decoder_hidden_size),
+                       encoder_padded_outputs.new_zeros(N, self.decoder_hidden_size)]
+        self.c_list = [encoder_padded_outputs.new_zeros(N, self.decoder_hidden_size),
+                       encoder_padded_outputs.new_zeros(N, self.decoder_hidden_size)]
+        # Init attention
+        self.cumulative_attention_weight = encoder_padded_outputs.new_zeros(N, Ti)
+        self.attention_context = encoder_padded_outputs.new_zeros(N, self.encoder_hidden_size)
+        # Keep encoder_padded_outputs
+        self.encoder_padded_outputs = encoder_padded_outputs
+
+    def _step(self, step_input):
+        # decoder RNN: s_i = RNN(s_i−1,y_i−1,c_i−1)
+        rnn_input = torch.cat((step_input, self.attention_context), dim=1)
+        self.h_list[0], self.c_list[0] = self.rnn[0](rnn_input, (self.h_list[0], self.c_list[0]))
+        self.h_list[1], self.c_list[1] = self.rnn[1](self.h_list[0], (self.h_list[1], self.c_list[1]))
+        rnn_output = self.h_list[1]
+        # attention: c_i = LocationSensitiveAttention(s_i, h, ca_i-1)
+        self.attention_context, attention_weight = self.attention(rnn_output,
+                                                                  self.encoder_padded_outputs,
+                                                                  self.cumulative_attention_weight,
+                                                                  mask=self.encoder_mask)
+        # NOTE HERE!!! Here maybe exists a bug?
+        # Below causa issue "one of the variables needed for gradient computation has been modified by an inplace operation"
+        # cumulative_attention_weight += attention_weight
+        # solution:
+        self.cumulative_attention_weight = self.cumulative_attention_weight + attention_weight
+        # concate s_i and c_i, and input to linear transform
+        linear_input = torch.cat((rnn_output, self.attention_context), dim=1)
+        feat_output = self.feature_linear(linear_input)
+        stop_token = self.stop_linear(linear_input)
+        return feat_output, stop_token, attention_weight
 
 class PreNet(nn.Module):
     """The prediction from the previous time step is first passed through a small pre-net containing 2 fully connected layers of 256 hidden ReLU units. We found that the pre-net acting as an information bottleneck was essential for learning attention."""
