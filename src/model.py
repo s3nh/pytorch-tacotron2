@@ -191,7 +191,7 @@ class Decoder(nn.Module):
 
         # Mask part
 
-        decoder_mask = decoder_mask.unsqueeze(-1) 
+        decoder_mask = decoder_mask.unsqueeze(-1).bool()
         feat_outputs = feat_outputs.masked_fill(decoder_mask, 0.0)
         stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
         return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
