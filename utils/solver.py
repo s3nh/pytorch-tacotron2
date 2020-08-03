@@ -81,7 +81,7 @@ class Solver(object):
             if self.checkpoint:
                 file_path = os.path.join(
                     self.save_folder, 'epoch%d.pth.tar' % (epoch + 1))
-                model = self.model.module if self.use_cuda else self.model
+                model = self.model
                 torch.save(model.serialize(model,
                                            self.optimizer, epoch + 1,
                                            tr_loss=self.tr_loss,
@@ -90,7 +90,7 @@ class Solver(object):
                 print('Saving checkpoint model to %s' % file_path)
             else:
                 # Save the last model
-                model = self.model.module if self.use_cuda else self.model
+                model =  self.model
                 file_path = os.path.join(self.save_folder, self.model_path)
                 torch.save(model.serialize(model,
                                            self.optimizer, epoch + 1,
