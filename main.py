@@ -35,6 +35,7 @@ def main(args):
     dataset = LJSpeechDataset(args.train_dir, args.train_csv,
                               text_transformer=text_to_sequence,
                               audio_transformer=spectrogram)
+    print(len(dataset))
     batch_sampler = RandomBucketBatchSampler(dataset,
                                              batch_size=args.batch_size,
                                              drop_last=False)
@@ -42,21 +43,26 @@ def main(args):
     data_loader = DataLoader(dataset, batch_sampler=batch_sampler,
                             collate_fn=collate_fn, num_workers=1)
     # Build model
+
+    print(next(iter(data_loader)))
+    print("{} {} {}".format(hparams.num_chars, hparams.padding_idx, hparams.feature_dim))
     model = FeaturePredictNet(hparams.num_chars, hparams.padding_idx,
                               hparams.feature_dim)
     # print(model)
     if args.use_cuda:
         # model = torch.nn.DataParallel(model)
         model.cuda()
+    print(model)
     # Build criterion
     criterion = FeaturePredictNetLoss()
     # Build optimizer
     optimizier = torch.optim.Adam(model.parameters(), lr=args.lr,
                                   weight_decay=args.l2,
                                   betas=(0.9, 0.999), eps=1e-6)
-    # Build Solver
-    #solver = Solver(data_loader, model, criterion, optimizier, args)
-    #solver.train()
+
+    solver = Solver(data_loader, model, criterion, optimizier, args)
+    solver.train()
+
 if __name__ == '__main__':
     args = parser.parse_args()
     print(args)

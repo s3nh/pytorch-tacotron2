@@ -106,46 +106,44 @@ class Decoder(nn.Module):
         self.postnet = PostNet(feature_dim, postnet_num_convs, postnet_filter_size, postnet_kernel_size)
         
 
-        def forward(self, encoder_padded_outputs, encoder_mask, feat_padded, decoder_mask):
-            # Create empty tensor of encoder padded output shape 
-            go_frame = self._init_go_frame(encoder_padded_outputs)
-            expand_feat = torch.cat((go_frame, feat_padded), dim=1) #[N, To+1, D]
+    def forward(self, encoder_padded_outputs, encoder_mask, feat_padded, decoder_mask):
+        # Create empty tensor of encoder padded output shape 
+        go_frame = self._init_go_frame(encoder_padded_outputs)
+        expand_feat = torch.cat((go_frame, feat_padded), dim=1) #[N, To+1, D]
 
-            # Rnn state initialization
-            self._init_state(encoder_padded_outputs)
-            self.encoder_mask = encoder_mask 
+        # Rnn state initialization
+        self._init_state(encoder_padded_outputs)
+        self.encoder_mask = encoder_mask 
 
-            # Forward part 
+        # Forward part 
 
-            feat_outputs, stop_tokens, attention_weights = [], [], [] 
-            To = feat_padded.size(1)
-            
-            prenet_out = self.prenet(expand_feat)
-            
-            for t in range(To):
-                if t == 0:
-                    self.attention.reset()
-                step_input = prenet_out[:, t, :]
-                feat_output, stop_token, attention_weight = self._step(step_input)
-                feat_outputs += [feat_output]
-                stop_okens += [stop_token]
-                attention_weights += [attention_weight]
-                
-            feat_outputs = torch.stack(feat_outputs, dim=1)
-            stop_tokens = torch.stack(stop_tokens, dim=1).squeeze()
-            attention_weights = torch.stack(attention_weights, dim=1)
-            feat_residual_outputs = self.postnet(feat_outputs)
-
-
-            # Mask part
-
-            decoder_mask = decoder_mask.unsqueeze(-1) 
-            feat_outputs = feat_outputs.masked_fill(decoder_mask, 0.0)
-            stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
-            return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
-
-
+        feat_outputs, stop_tokens, attention_weights = [], [], [] 
+        To = feat_padded.size(1)
         
+        prenet_out = self.prenet(expand_feat)
+        
+        for t in range(To):
+            if t == 0:
+                self.attention.reset()
+            step_input = prenet_out[:, t, :]
+            feat_output, stop_token, attention_weight = self._step(step_input)
+            feat_outputs += [feat_output]
+            stop_okens += [stop_token]
+            attention_weights += [attention_weight]
+            
+        feat_outputs = torch.stack(feat_outputs, dim=1)
+        stop_tokens = torch.stack(stop_tokens, dim=1).squeeze()
+        attention_weights = torch.stack(attention_weights, dim=1)
+        feat_residual_outputs = self.postnet(feat_outputs)
+
+
+        # Mask part
+
+        decoder_mask = decoder_mask.unsqueeze(-1) 
+        feat_outputs = feat_outputs.masked_fill(decoder_mask, 0.0)
+        stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
+        return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
+
 
 
 class PreNet(nn.Module):

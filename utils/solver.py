@@ -134,6 +134,7 @@ class Solver(object):
             stop_token_padded = stop_token_padded.cuda()
             encoder_mask = encoder_mask.cuda()
             decoder_mask = decoder_mask.cuda()
+            print("I am just after decoder mask, right one before self.model")
             y_pred = self.model(text_padded, input_lengths, feat_padded, encoder_mask, decoder_mask)
             y_target = (feat_padded, stop_token_padded)
             loss = self.criterion(y_pred, y_target)
