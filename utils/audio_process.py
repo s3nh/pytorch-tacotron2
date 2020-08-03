@@ -2,7 +2,7 @@ import librosa
 import librosa.filters 
 import numpy as np 
 from scipy import signal 
-
+import hyperparams as hparams
 
 def load_wav(path, sr):
     return librosa.core.load(path, sr=sr)[0]
@@ -10,9 +10,6 @@ def load_wav(path, sr):
 def save_wav(wav, path):
     # 32767
     wav *= 32767 / max(0.01, np.max(np.abs(wav)))
-
-
-
 
 
 def spectrogram(y):

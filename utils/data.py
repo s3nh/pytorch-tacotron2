@@ -15,7 +15,7 @@ from torch._six import int_classes as _int_classes
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import SequentialSampler
 
-from audio_process import load_wav
+from utils.audio_process import load_wav
 
 
 class LJSpeechDataset(data.Dataset):

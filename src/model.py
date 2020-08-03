@@ -5,6 +5,39 @@ import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence 
 
+
+
+class FeaturePredictNet(nn.Module):
+    """Recurrent sequence-to-sequence feature prediction network with attention
+    which predicts a sequence of (mel) spectrogram frames from an input character
+    sequence.
+    """
+    def __init__(self, num_chars, padding_idx, feature_dim,
+                 embedding_dim=512, encoder_num_convs=3, kernel_size=5,
+                 encoder_hidden_size=256, bidirectional=True,
+                 prenet_dim=256, decoder_hidden_size=1024,
+                 attention_dim=128, location_feature_dim=32,
+                 postnet_num_convs=5, postnet_filter_size=512, postnet_kernel_size=5,
+                 max_decoder_steps=1000):
+        super(FeaturePredictNet, self).__init__()
+        # Hyperparameter
+        self.num_chars, self.padding_idx, self.feature_dim = num_chars, padding_idx, feature_dim
+        self.embedding_dim = embedding_dim
+        self.encoder_num_convs, self.kernel_size = encoder_num_convs, kernel_size
+        self.encoder_hidden_size, self.bidirectional = encoder_hidden_size, bidirectional
+        self.prenet_dim, self.decoder_hidden_size = prenet_dim, decoder_hidden_size
+        self.attention_dim, self.location_feature_dim = attention_dim, location_feature_dim
+        self.postnet_num_convs, self.postnet_filter_size, self.postnet_kernel_size = postnet_num_convs, postnet_filter_size, postnet_kernel_size
+        # Components
+        self.encoder = Encoder(num_chars, padding_idx, embedding_dim, encoder_num_convs, kernel_size,
+                               encoder_hidden_size, bidirectional)
+        encoder_hidden_size = encoder_hidden_size * 2 if bidirectional else encoder_hidden_size
+        self.decoder = Decoder(feature_dim, encoder_hidden_size,
+                               prenet_dim, decoder_hidden_size,
+                               attention_dim, location_feature_dim,
+                               postnet_num_convs, postnet_filter_size, postnet_kernel_size,
+                               max_decoder_steps)
+
 class Encoder(nn.Module):
 
     def __init__(self, num_chars, padding_idx, embedding_dim=512, encoder_num_convs=3, 
@@ -14,7 +47,7 @@ class Encoder(nn.Module):
         #Embedding layer with prededfined embedding params 
         
         self.embedding = nn.Embedding(num_chars, embedding_dim, padding_idx=padding_idx)
-        padding = (kernel -1) // 2 
+        padding = (kernel_size -1) // 2 
         convs = []
         
         for _ in range(encoder_num_convs):
@@ -50,7 +83,7 @@ class Decoder(nn.Module):
 
     def __init__(self, feature_dim, encoder_hidden_size=512, 
             prenet_dim=256, decoder_hidden_size = 1024, attention_dim=128, 
-            location_feature_dim=32, postnet_num_convs=5, postnet_filter_size=512, postnet_kernel_size=5, max_decoder_step=1000):
+            location_feature_dim=32, postnet_num_convs=5, postnet_filter_size=512, postnet_kernel_size=5, max_decoder_steps=1000):
         super(Decoder, self).__init__()
 
         self.feature_dim = feature_dim
