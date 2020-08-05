@@ -196,6 +196,41 @@ class Decoder(nn.Module):
         stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
         return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
 
+    def inference(self, encoder_padded_outputs):
+        """Inference one utterance."""
+        # Init
+        # get go frame
+        go_frame = self._init_go_frame(encoder_padded_outputs).squeeze(1)
+        # init rnn state and attention
+        self._init_state(encoder_padded_outputs)
+        self.encoder_mask = None
+
+        # Forward
+        feat_outputs, stop_tokens, attention_weights = [], [], []
+        step_input = go_frame
+        self.attention.reset()
+        while True:
+            step_input = self.prenet(step_input)
+            feat_output, stop_token, attention_weight = self._step(step_input)
+            # record
+            feat_outputs += [feat_output]
+            stop_tokens += [stop_token]
+            attention_weights += [attention_weight]
+            # terminate?
+            if torch.sigmoid(stop_token) > 0.5:
+                break
+            elif len(feat_outputs) == self.max_decoder_steps:
+                print("Warning! Reached max decoder steps")
+                break
+            # autoregressive
+            step_input = feat_output
+        feat_outputs = torch.stack(feat_outputs, dim=1)
+        stop_tokens = torch.stack(stop_tokens, dim=1).squeeze()
+        attention_weights = torch.stack(attention_weights, dim=1)
+        feat_residual_outputs = self.postnet(feat_outputs)
+        return feat_outputs, feat_residual_outputs, stop_tokens, attention_weights
+
+
     def _init_go_frame(self, tensor):
         """tensor: [N, ...]"""
         N = tensor.size(0)

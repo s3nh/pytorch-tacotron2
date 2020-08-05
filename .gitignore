@@ -1,4 +1,5 @@
 /data/
 *.ipynb
 */__pycache__/
-
+*.txt
+exp/
