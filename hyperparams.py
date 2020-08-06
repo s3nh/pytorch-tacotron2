@@ -1,7 +1,7 @@
 # Text
 eos = '~'
 pad = '_'
-chars = pad + eos + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\'\"(),-.:;? '
+chars = pad + eos + 'AĄBCĆDEĘFGHIJKLMNŃOPQRSTUVWXYZŹŻaąbcćdeęfghijklmnńopqrstuvwxyzźż!\'\"(),-.:;? '
 unk_idx = len(chars)
 
 # Audio
@@ -25,7 +25,7 @@ num_chars = len(chars) + 1  # + 1 is <unk>
 padding_idx = chars.find(pad)
 
 # Decoder
-feature_dim = 513
+feature_dim = 1025 
 
 # Eval:
 griffin_lim_iters = 60
